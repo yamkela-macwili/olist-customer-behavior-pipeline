@@ -17,7 +17,7 @@ Built as my Data Engineering elective project at [WeThinkCode_](https://www.weth
 
 ## Why this project
 
-I wanted a pipeline built on data that actually supports customer-behavior analysis, not synthetic data, and not a dataset where the "customer behavior" angle has to be invented. Olist gives real, relational, appropriately messy e-commerce data — `orders`, `customers`, `payments`, `reviews`, and `delivery logistics` across ~100k orders.
+I wanted a pipeline built on data that actually supports customer-behavior analysis, not synthetic data, and not a dataset where the "customer behavior" angle has to be invented. Olist gives real, relational, appropriately messy e-commerce data: `orders`, `customers`, `payments`, `reviews`, and `delivery logistics` across ~100k orders.
 
 ---
 
