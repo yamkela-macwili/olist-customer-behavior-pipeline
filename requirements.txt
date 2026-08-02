@@ -1,0 +1,7 @@
+apache-airflow>=3.0.0
+pandas>=2.2
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+great-expectations>=0.18
+pytest>=8.0
+python-dotenv>=1.0
