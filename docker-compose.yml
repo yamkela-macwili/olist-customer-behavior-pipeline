@@ -6,11 +6,16 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-webserver:8080/execution/"
+    _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-postgres pandas apache-airflow-providers-fab"
+    PYTHONPATH: "/opt/airflow"
   volumes:
     - ./dags:/opt/airflow/dags
     - ./sql:/opt/airflow/sql
     - ./data:/opt/airflow/data
     - ./tests:/opt/airflow/tests
+    - ./src:/opt/airflow/src
   depends_on:
     - postgres
 
@@ -24,7 +29,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5435:5432"
 
   airflow-init:
     <<: *airflow-common
@@ -35,7 +40,7 @@ services:
 
   airflow-webserver:
     <<: *airflow-common
-    command: webserver
+    command: api-server
     ports:
       - "8080:8080"
     depends_on:
@@ -44,6 +49,12 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    depends_on:
+      - airflow-init
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
     depends_on:
       - airflow-init
 
