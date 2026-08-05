@@ -6,7 +6,7 @@
 
 End-to-end data pipeline built on the [Olist Brazilian E-Commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce):
 ```
-ingestion → data quality → transforms → customer behavior features (RFM, churn proxy, delivery experience) → serving layer.
+ingestion → data quality → transforms → customer behavior features (RFM, churn proxy, delivery experience) → serving layer
 ```
 
 Built as my Data Engineering elective project at [WeThinkCode_](https://www.wethinkcode.co.za/).
@@ -92,23 +92,31 @@ Full breakdown in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Setup
 
-\`\`\`bash
-# 1. Clone
+### 1. Clone
+```bash
 git clone https://github.com/yamkela-macwili/olist-customer-behavior-pipeline.git
 cd olist-customer-behavior-pipeline
+```
 
-# 2. Download the dataset from Kaggle and place CSVs in data/
-#    https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce
+### 2. Download the dataset from Kaggle and place CSVs in data/
+```
+https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce
+```
 
-# 3. Start services
+### 3. Start services
+```bash
 docker-compose up -d
+```
 
-# 4. Trigger the DAG via the Airflow UI (localhost:8080) or CLI
+### 4. Trigger the DAG via the Airflow UI (localhost:8080) or CLI
+```bash
 airflow dags trigger olist_customer_behavior_pipeline
+```
 
-# 5. View dashboard
-#    Metabase at localhost:3000
-\`\`\`
+### 5. View dashboard
+```
+     Metabase at localhost:3000
+```
 
 ---
 
