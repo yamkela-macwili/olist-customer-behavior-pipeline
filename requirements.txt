@@ -1,10 +1,21 @@
-apache-airflow>=3.0.0
-pandas>=2.2
-sqlalchemy>=2.0
+# ─────────────────────────────────────────────────────────────────────────────
+# Olist Customer Behavior Pipeline
+# Airflow itself is provided by the Docker base image.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# PostgreSQL
 psycopg2-binary>=2.9
-great-expectations>=0.18
-pytest>=8.0
-python-dotenv>=1.0
+
+# Airflow providers
+apache-airflow-providers-postgres
+apache-airflow-providers-standard
+apache-airflow-providers-fab
+
+# Data / ML
+pandas>=2.2,<3
+numpy>=1.26
 scikit-learn>=1.4
 joblib>=1.3
-numpy>=1.26
+
+# Testing
+pytest>=8

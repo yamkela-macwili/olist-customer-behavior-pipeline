@@ -1,20 +1,21 @@
 """
 Raw-layer ingestion: read source CSVs in chunks and load into the raw schema.
 
-Kept separate from the DAG file on purpose, this module has no Airflow
+Kept separate from the DAG file on purpose — this module has no Airflow
 dependency, so it can be tested with plain pytest and imported into the DAG
-as a thin wrapper. Testing DAG-decorated functions directly is awkward,
+as a thin wrapper. Testing DAG-decorated functions directly is awkward;
 testing plain functions is not.
 """
 
+import logging
 from pathlib import Path
-from typing import Iterator, Union
+from typing import Union
 
-import pandas as pd
 from sqlalchemy.engine import Engine
 
-from src.config.settings import CHUNK_SIZE
-from src.common.utils import read_csv_chunks
+from include.utils import read_csv_chunks
+
+logger = logging.getLogger(__name__)
 
 
 def load_csv_to_raw(
@@ -27,8 +28,8 @@ def load_csv_to_raw(
     """Load a source CSV into a raw-layer table, chunked.
 
     The first chunk replaces the table (if_exists="replace"), subsequent
-    chunks append. This makes reloads idempotent, rerunning against the same
-    file produces the same row count, rather than duplicating rows on every
+    chunks append. This makes reloads idempotent — rerunning against the same
+    file produces the same row count rather than duplicating rows on every
     retry, which matters for an Airflow task that may be retried.
 
     Returns the total number of rows loaded.
@@ -36,6 +37,7 @@ def load_csv_to_raw(
     if schema and engine.dialect.name != "sqlite":
         with engine.begin() as conn:
             conn.exec_driver_sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+        logger.debug("Ensured schema '%s' exists", schema)
 
     total_rows = 0
     for i, chunk in enumerate(read_csv_chunks(csv_path, chunk_size=chunk_size)):
@@ -47,6 +49,9 @@ def load_csv_to_raw(
             index=False,
         )
         total_rows += len(chunk)
+        logger.debug("Loaded chunk %d (%d rows so far) into %s", i, total_rows, table_name)
+
+    logger.info("Loaded %d rows into %s.%s", total_rows, schema or "public", table_name)
     return total_rows
 
 
@@ -59,7 +64,7 @@ def verify_row_count(
     """Raise ValueError if the loaded table's row count doesn't match the
     source CSV's row count.
 
-    Deliberately a hard failure, not a logged warning, a row-count mismatch
+    Deliberately a hard failure, not a logged warning — a row-count mismatch
     means the load is silently incomplete and nothing downstream should run
     against it.
     """
@@ -77,45 +82,8 @@ def verify_row_count(
             f"source CSV has {source_rows} rows, loaded table has {loaded_rows} rows"
         )
 
-
-if __name__ == "__main__":
-    import os
-    import socket
-    from pathlib import Path
-
-    from sqlalchemy import create_engine
-
-    # Use localhost if running this script on your machine.
-    # Use "postgres" if running inside an Airflow container.
-    db_uri = os.getenv("DATABASE_URL")
-    if not db_uri:
-        try:
-            socket.gethostbyname("postgres")
-            db_uri = "postgresql+psycopg2://airflow:airflow@postgres:5432/olist"
-        except socket.gaierror:
-            db_uri = "postgresql+psycopg2://airflow:airflow@localhost:5435/olist"
-
-    engine = create_engine(db_uri)
-
-    csv_path = Path("data/olist_customers_dataset.csv")
-    table_name = "customers"
-    schema = "raw"
-
-    rows = load_csv_to_raw(
-        csv_path=csv_path,
-        table_name=table_name,
-        engine=engine,
-        schema=schema,
-        chunk_size=CHUNK_SIZE,
+    logger.info(
+        "Row count verified for %s: %d rows match source CSV",
+        table_name,
+        loaded_rows,
     )
-
-    print(f"Loaded {rows} rows into raw.{table_name}")
-
-    verify_row_count(
-        csv_path=csv_path,
-        table_name=table_name,
-        engine=engine,
-        schema=schema,
-    )
-
-    print("✓ Row count verification passed.")

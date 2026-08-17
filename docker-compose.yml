@@ -1,69 +1,307 @@
-version: "3.8"
+---
+# Olist Customer Behavior Pipeline
+# Airflow 3.x + PostgreSQL + PgAdmin + Metabase
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:3.0.0
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+  env_file:
+    - .env
+
   environment:
+    # ── Airflow metadata database ────────────────────────────────────────────
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
+      postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+
+    # ── Core ──────────────────────────────────────────────────────────────────
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
-    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-webserver:8080/execution/"
-    _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-postgres pandas apache-airflow-providers-fab"
-    PYTHONPATH: "/opt/airflow"
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+    AIRFLOW__CORE__AUTH_MANAGER: ${AIRFLOW__CORE__AUTH_MANAGER}
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-api-server:8080/execution"
+
+    # ── Airflow 3 API server ──────────────────────────────────────────────────
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}
+
+    # ── Logging ───────────────────────────────────────────────────────────────
+    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    AIRFLOW__LOGGING__LOG_FORMAT: >-
+      [%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s
+    AIRFLOW__LOGGING__COLORED_CONSOLE_LOG: "false"
+    AIRFLOW__LOGGING__REMOTE_LOGGING: "false"
+
+    # ── Olist PostgreSQL connection ───────────────────────────────────────────
+    AIRFLOW_CONN_OLIST_POSTGRES: >-
+      postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${OLIST_DB}
+
+    # ── Pipeline environment ─────────────────────────────────────────────────
+    POSTGRES_CONN_ID: ${POSTGRES_CONN_ID}
+    DATA_DIR: ${DATA_DIR}
+    CHUNK_SIZE: ${CHUNK_SIZE}
+
+    # ── Python imports ────────────────────────────────────────────────────────
+    PYTHONPATH: /opt/airflow
+
   volumes:
     - ./dags:/opt/airflow/dags
-    - ./sql:/opt/airflow/sql
+    - ./include:/opt/airflow/include
+    - ./scripts:/opt/airflow/scripts
     - ./data:/opt/airflow/data
+    - ./logs:/opt/airflow/logs
     - ./tests:/opt/airflow/tests
-    - ./src:/opt/airflow/src
+    - ./sql:/opt/airflow/sql
+
   depends_on:
-    - postgres
+    postgres:
+      condition: service_healthy
+
+  restart: unless-stopped
+
 
 services:
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # PostgreSQL
+  # ───────────────────────────────────────────────────────────────────────────
+
   postgres:
     image: postgres:16
+
+    env_file:
+      - .env
+
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${AIRFLOW_DB}
+
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init_db.sh:/docker-entrypoint-initdb.d/init_db.sh
+
     ports:
-      - "5435:5432"
+      - "5433:5432"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "${POSTGRES_USER}",
+          "-d",
+          "${AIRFLOW_DB}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # PgAdmin
+  # ───────────────────────────────────────────────────────────────────────────
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+
+    env_file:
+      - .env
+
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+    ports:
+      - "5051:80"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Airflow initialization
+  # ───────────────────────────────────────────────────────────────────────────
 
   airflow-init:
     <<: *airflow-common
+
     entrypoint: /bin/bash
+
     command:
       - -c
-      - "airflow db migrate && airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com"
+      - |
+        set -e
 
-  airflow-webserver:
+        echo "Running Airflow 3 database migration..."
+        airflow db migrate
+
+        echo "Creating Airflow admin user..."
+
+        airflow users create \
+          --username "${AIRFLOW_ADMIN_USER}" \
+          --password "${AIRFLOW_ADMIN_PASSWORD}" \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email "${AIRFLOW_ADMIN_EMAIL}" \
+          || true
+
+        echo "Airflow initialization complete."
+
+    restart: "no"
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Airflow API server
+  # ───────────────────────────────────────────────────────────────────────────
+
+  airflow-api-server:
     <<: *airflow-common
-    command: api-server
+
+    command:
+      - airflow
+      - api-server
+
     ports:
       - "8080:8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "http://localhost:8080/api/v2/monitor/health"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
     depends_on:
-      - airflow-init
+      postgres:
+        condition: service_healthy
+
+      airflow-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Airflow scheduler
+  # ───────────────────────────────────────────────────────────────────────────
 
   airflow-scheduler:
     <<: *airflow-common
-    command: scheduler
+
+    command:
+      - airflow
+      - scheduler
+
     depends_on:
-      - airflow-init
+      postgres:
+        condition: service_healthy
+
+      airflow-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Airflow DAG processor
+  # ───────────────────────────────────────────────────────────────────────────
 
   airflow-dag-processor:
     <<: *airflow-common
-    command: dag-processor
+
+    command:
+      - airflow
+      - dag-processor
+
     depends_on:
-      - airflow-init
+      postgres:
+        condition: service_healthy
+
+      airflow-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Airflow triggerer
+  # ───────────────────────────────────────────────────────────────────────────
+
+  airflow-triggerer:
+    <<: *airflow-common
+
+    command:
+      - airflow
+      - triggerer
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      airflow-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Metabase
+  # ───────────────────────────────────────────────────────────────────────────
 
   metabase:
     image: metabase/metabase:latest
+
     ports:
       - "3000:3000"
+
+    volumes:
+      - metabase_data:/metabase-data
+
+    environment:
+      MB_DB_TYPE: h2
+      MB_DB_FILE: /metabase-data/metabase.db
+
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "http://localhost:3000/api/health"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+    restart: unless-stopped
+
 
 volumes:
-  postgres-data:
+  postgres_data:
+  pgadmin_data:
+  metabase_data:

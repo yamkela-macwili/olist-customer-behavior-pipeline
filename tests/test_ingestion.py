@@ -15,7 +15,8 @@ import pandas as pd
 import pytest
 from sqlalchemy import create_engine, inspect
 
-from src.ingestion.ingestion import load_csv_to_raw, read_csv_chunks
+from include.ingestion import load_csv_to_raw, verify_row_count
+from include.utils import read_csv_chunks
 
 
 @pytest.fixture
@@ -94,16 +95,13 @@ class TestLoadCsvToRaw:
 
 class TestVerifyRowCount:
     def test_passes_when_counts_match(self, sample_csv, sqlite_engine):
-        from src.ingestion.ingestion import verify_row_count
         load_csv_to_raw(sample_csv, "raw_sample", sqlite_engine, chunk_size=5)
         # should not raise
         verify_row_count(sample_csv, "raw_sample", sqlite_engine)
 
     def test_raises_when_counts_mismatch(self, sample_csv, sqlite_engine):
-        from src.ingestion.ingestion import verify_row_count
         load_csv_to_raw(sample_csv, "raw_sample", sqlite_engine, chunk_size=5)
         # simulate a partial/corrupted load by deleting a row after load
-        sqlite_engine.execute("DELETE FROM raw_sample WHERE id = 1") if hasattr(sqlite_engine, "execute") else None
         with sqlite_engine.connect() as conn:
             conn.exec_driver_sql("DELETE FROM raw_sample WHERE id = 1")
             conn.commit()
