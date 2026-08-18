@@ -24,6 +24,7 @@ x-airflow-common: &airflow-common
 
     # ── Airflow 3 API server ──────────────────────────────────────────────────
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
 
     # ── Logging ───────────────────────────────────────────────────────────────
     AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
